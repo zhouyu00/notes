@@ -36,6 +36,8 @@ git config a.b something
 git log --stat
 //查看工作区和提交缓存区之间的差异
 git diff
+//查看工作区和版本库之间的差异
+git diff HEAD/git diff master
 //查看提交缓存区和版本库之间的差距
 git diff --cached 
 //更新暂存区的目录树，写入修改文件内容到新对象中
@@ -51,8 +53,23 @@ git checkout . / git checkout -- <file>
 //使用HEAD指向的master分支中的全部或者部分文件替换暂存区和以及工作区中的文件,不但会清除工作区中未提交的改动，也会清除暂存区中未提交的改动
 git checkout HEAD ./git checkout HEAD <file>
 ``` 
-## git diff魔法
+## 2git diff魔法
 ```sh
 //查看版本库中提交的目录树
 git ls-tree -l HEAD
+//命令清除当前工作区中没有加入版本库的文件和目录
+git clean -fd
+//使用暂存区刷新工作区
+git checkout . 
+//查看暂存区的目录树
+git ls-files -s
+//需要先将暂存区目录树写入对象库,然后根据写入的tree返回的hashID
+git write-tree
+git ls-tree
+//对本地所有执行变更的文件执行提交操作，建议少使用
+git commit -a
+
 ```
+
+## 3git对象
+### git对象库探秘
