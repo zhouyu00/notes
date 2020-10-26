@@ -36,6 +36,9 @@
   - [1.3 Annotated Controllers](#13-annotated-controllers)
     - [1.3.1 Declaration](#131-declaration)
       - [AOP Proxies](#aop-proxies)
+    - [1.3.2Reuqest Mapping](#132reuqest-mapping)
+      - [URL patterns](#url-patterns)
+    - [1.3.5 DataBinder](#135-databinder)
   - [1.4 Functional Endpoints](#14-functional-endpoints)
   - [1.5 URI Links](#15-uri-links)
   - [1.6 Asynchronous Requests](#16-asynchronous-requests)
@@ -795,8 +798,81 @@ public class WebConfig{
 
 在一些情况下，你需要在运行时对你的控制器通过AOP代理进行装饰。一个例子就是你选择直接在控制器上使用**@Transactional**。如果在这种情况下，对于特定的控制器，我们推荐使用基于类的代理。这是控制器的典型默认选择。然而如果一个控制器需要实现一个不属于Spring context callback（例如，**IntializingBean**，***Aware**，及其他）的接口，你需要清晰的配置基于类的代理。例如，对于**\<tx:annotation-driven/>**你需要改成**<tx:annotation-driven proxy-target-class="true"/>**，**@EnableTrasactionManagement**需要改成**@EnableTransactionManagement(proxyTargetClass=true)**。
 
+### 1.3.2Reuqest Mapping
+你可以使用**@RequestMapping*8注解来映射请求到控制器方法。它具有多种属性来通过URL，HTTP方法，请求参数，请求头和媒体类型来映射。你可以使用它在类级别来表达共享的映射或者在方法级别来收窄范围到特定的映射点。
+如下是根据HTTP方法特定的**@RequestMapping**的快捷方式:
+* @GetMapping
+* @PostMapping
+* @PutMapping
+* @DeleteMapping
+* @PatchMapping
 
+提供这些快捷方法的原因是，理论上，大多数控制器方法会被映射到一个特定的HTTP方法而不是使用 **@RequestMapping**，默认地，被映射到所有的HTTP方法。于此同时，**@RequestMapping**
+还被用于类级别来表达共享的映射。
 
+下面的例子具有类型和方法级别的映射：
+```java
+@RestController
+@RequestMapping("/persons")
+class PersonController {
+
+    @GetMapping("/{id}")
+    public Person getPerson(@PathVariable Long id) {
+        // ...
+    }
+
+    @PostMapping
+    @ResponseStatus(HttpStatus.CREATED)
+    public void add(@RequestBody Person person) {
+        // ...
+    }
+}
+```
+#### URL patterns
+你可以使用使用glob patterns和通配符来映射：
+|Pattern|Description|Example|
+|-------|-----------|-------|
+|?|匹配一个字符|"/pages/t?st.html\n 匹配"/pages/test.html"和"/pages/t3st.html"|
+|*|匹配0个或者多个而字符在一个路径段内|"\/resources/\*png"匹配"\/resources/file.png"\n"/projects/\*/versions"匹配"/projects/spring/boot/versions"|
+
+### 1.3.5 DataBinder
+@Controller 或者@ControllerAdvice 类能使用@InitBinder来初始化WebDataBinder,他们依次可以：
+* 绑定请求参数（如，表单或者请求参数）到模型对象上
+* 转换基于String的请求值（例如请求参数，路径变量，请求头，cookies，以及其他参数）到控制器方法参数的目标类型
+* 在渲染HTML格式时，格式化模型对象的值为字符串值
+
+@InitBinder方法能够注册控制器特定的java.bean.PropertyEditor或者Spring Converter 和 Formatter 组件。另外，你可以使用MVC
+config来注册Converter 和Formatter类型为全局共享的FormmattingConversionService。
+
+@InitBinder 方法支持许多与@RequestMapping相同的参数，除了@ModelAttribute(命令对象)参数。典型地，他们都被声明为一个带有WebDataBinder参数（为了注册）和一个void 返回值。下面列出了一个例子。
+
+```java
+@Controller
+public class FormController {
+
+    @InitBinder 
+    public void initBinder(WebDataBinder binder) {
+        SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd");
+        dateFormat.setLenient(false);
+        binder.registerCustomEditor(Date.class, new CustomDateEditor(dateFormat, false));
+    }
+    // ...
+}
+
+```
+可选的，当你需要使用一个基于Formatter setup 通过一个共享的FormatingConversionService，你可以重用相同的方法以及注册控制器特定的Formatter实现，如下例子所示：
+```java
+@Controller
+public class FormController {
+
+    @InitBinder 
+    protected void initBinder(WebDataBinder binder) {
+        binder.addCustomFormatter(new DateFormatter("yyyy-MM-dd"));
+    }
+
+    // ...
+}
+```
 ## 1.4 Functional Endpoints
 
 

@@ -410,3 +410,84 @@ public class SimpleMovieLister {
     // business logic that actually uses the injected MovieFinder is omitted...
 }
 ```
+
+# 3 验证，数据绑定和类型转换
+## 3.1 通过Spring Validator 接口来验证
+Spring提供Validator接口特征供你用来验证对象，这个Validator接口通过使用一个Errors对象来工作，即，在验证的同时，验证器能通过Errors对象来报告错误。
+考虑如下的小数据对象：
+```java
+public class Person {
+
+    private String name;
+    private int age;
+
+    // the usual getters and setters...
+}
+```
+下面的例子通过实现Validator的org.springframework.validation.Validator接口的两个方法提供了Person类的验证行为：
+* supports(Class): 这个Validator是否能够验证提供的类实例
+* validate(Object,org.springframework.validation.Errors): 验证给定的对象，并且为了防止验证错误，通过给定的Errors对象来注册。
+
+实现一个Validator相当直接，尤其当你熟悉Spring Framework提供的ValidationUtils帮助类。下面的例子实现了Person实例的Validator：
+```java
+public class PersonValidator implements Validator {
+
+    /**
+     * This Validator validates only Person instances
+     */
+    public boolean supports(Class clazz) {
+        return Person.class.equals(clazz);
+    }
+
+    public void validate(Object obj, Errors e) {
+        ValidationUtils.rejectIfEmpty(e, "name", "name.empty");
+        Person p = (Person) obj;
+        if (p.getAge() < 0) {
+            e.rejectValue("age", "negativevalue");
+        } else if (p.getAge() > 110) {
+            e.rejectValue("age", "too.darn.old");
+        }
+    }
+}
+```
+这个ValidationUtils类使用静态的rejectIfEmpty(..)方法来拒绝name属性如果它时null或者为空字符串。你可以通过查看ValidationUtils的javadoc来查看它提供了哪些功能除了下面的例子提供的。
+
+当实现一个单一Validator类在一个复杂对象内来验证一个嵌套对象是可能的时候，可能为每一个嵌套的对象封装验证逻辑为它自己的Validator实现是更好的做法。一个简单的复杂对象的例子可能是一个有两个String属性（firstname和secondname）以及一个复杂的Address秀i昂莱组成的。Address Object可能被独立于Customer使用，因此需要实现一个独立的AddressValidator。如果你需要你的CustomerValidator来重用AddresssValidator类包含的逻辑而不是复制粘贴，你可以在你的CustomerValidator中独立的注入和实例化一个AddressValidator,如下例子所示：
+```java
+public class CustomerValidator implements Validator {
+
+    private final Validator addressValidator;
+
+    public CustomerValidator(Validator addressValidator) {
+        if (addressValidator == null) {
+            throw new IllegalArgumentException("The supplied [Validator] is " +
+                "required and must not be null.");
+        }
+        if (!addressValidator.supports(Address.class)) {
+            throw new IllegalArgumentException("The supplied [Validator] must " +
+                "support the validation of [Address] instances.");
+        }
+        this.addressValidator = addressValidator;
+    }
+
+    /**
+     * This Validator validates Customer instances, and any subclasses of Customer too
+     */
+    public boolean supports(Class clazz) {
+        return Customer.class.isAssignableFrom(clazz);
+    }
+
+    public void validate(Object target, Errors errors) {
+        ValidationUtils.rejectIfEmptyOrWhitespace(errors, "firstName", "field.required");
+        ValidationUtils.rejectIfEmptyOrWhitespace(errors, "surname", "field.required");
+        Customer customer = (Customer) target;
+        try {
+            errors.pushNestedPath("address");
+            ValidationUtils.invokeValidator(this.addressValidator, customer.getAddress(), errors);
+        } finally {
+            errors.popNestedPath();
+        }
+    }
+}
+```
+验证的错误报告给Errors对象被传递给验证器。在Spring Web MVC中，你可以使用<spring:bind/>标签来检查错误信息，但是你也可以自己来检查Errors对象。更多关于方法的信息能够在javadoc中找到。
