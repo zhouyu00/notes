@@ -491,3 +491,229 @@ public class CustomerValidator implements Validator {
 }
 ```
 验证的错误报告给Errors对象被传递给验证器。在Spring Web MVC中，你可以使用<spring:bind/>标签来检查错误信息，但是你也可以自己来检查Errors对象。更多关于方法的信息能够在javadoc中找到。
+
+## 3.2 解析错误码到错误信息
+我们提到了数据绑定和验证。这部分涉及有关验证错误相关的输出信息。在前面章节提到的例子中，我们拒绝了name和age域。如果我们想要通过MessageSource来输出错误信息，我们可以通过在拒绝域（如前面的'name'和'age'）使用我们提供的错误码。当你调用（直接或者不直接地，通过使用，例如，ValidationUtils类）rejectValue 或者一个其他的从Errors接口来的reject方法，底层的实现不仅仅是注册了你传递的错误码，但是也注册了大量其他的错误码。MessageCodesResolver决定了那些错误码是Erroes接口注册的。默认地会使用DefaultMessageCodesResolver，不仅仅注册了一个你传递code地信息，也注册了包含你传递给拒绝方法的域名信息。因此，如果你通过使用rejectValue("age","too.darn.old")来拒绝一个域，除了too.dar.old码，Spring也注册too.darn.old.age和too.darn.old.age.int（第一各包括了域名，第二个包括了域名的类型）。这给开发者提供了处理错误信息的便利。
+
+更多的信息关于MessageCodeResolver，并且可以在MessageCodeResolver 和DefaultMessageCodesResolver的javadoc的默认的策略。
+
+## 3.3 Bean调整和BeanWrapper
+
+org.springframework.beans包扩充了JavaBeans的标准。一个JavaBean 是一个带有无参构造器的类，并带有确定的协议，例如，一个名叫bingoMadness的属性会具有一个setter方法setBingoMadness(..)和getter方法getBingoMadness()。获取更多有关JavaBeans和定义，查看javabeans。
+
+在beans包内一个相当重要的类叫做BeanWrapper接口，以及它相关的实现（BeanWrapperImpl）。正如javadoc中引述的，BeanWrapper提供了设置和读取属性值（独立或者大量），获得属性描述器，以及查询属性值确定它们是可读或者可写的功能。同时BeanWrapper 提供了嵌套属性的支持，能够设置无限深度的子属性的属性。BeanWrapper也支持添加标准JavaBean的PropertyChangeListener 和 VetobleChangeListener，而不需要目标类中有相应的支持代码。最后同样重要的是，BeanWrapper提供索引属性设定。BeanWrapper通常不是直接被应用代码使用，而是通过DataBinder和BeanFactory来使用。
+
+### 3.3.1 设定和获取基本和嵌套的属性
+设定和获取属性通常通过setPropertyValue和getPropertyValue,重载BeanWrapper的方法变形。查看Javadoc获取更多细节。下面表展示了这些转换的一些例子：
+|Expression|Explanation|
+|----------|-----------|
+|name|意味着与getName()或者isName和setName()方法相关|
+|account.name|意味着嵌套的account的name属性和相关的getAccount().setName()或者getAccount().getName()方法|
+|account[2]|意味着account的按照索引的第三个属性。索引属性可以是array，list或者其他天然有序集合的类型|
+|account[COMPANYNAME]|意味着map 入口通过COMPANYNAME来索引以获得account Map 属性|
+
+(接下来的部分对你来说并不特别重要，如果你不打算直接使用BeanWrapper直接来工作。如果你仅仅是使用DataBind和BeanFactory和它们的默认实现来工作，你可以直接跳到PropertyEditors。)
+
+下面的两个例子展示了使用BeanWrapper来get和set属性：
+```java
+public class Company {
+
+    private String name;
+    private Employee managingDirector;
+
+    public String getName() {
+        return this.name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
+    }
+
+    public Employee getManagingDirector() {
+        return this.managingDirector;
+    }
+
+    public void setManagingDirector(Employee managingDirector) {
+        this.managingDirector = managingDirector;
+    }
+}
+```
+```java
+public class Employee {
+
+    private String name;
+
+    private float salary;
+
+    public String getName() {
+        return this.name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
+    }
+
+    public float getSalary() {
+        return salary;
+    }
+
+    public void setSalary(float salary) {
+        this.salary = salary;
+    }
+}
+```
+下面的代码块展示了如何获取和设定一些实例化的Companies和Emploees的属性。
+```java
+BeanWrapper company = new BeanWrapperImpl(new Company());
+// setting the company name..
+company.setPropertyValue("name", "Some Company Inc.");
+// ... can also be done like this:
+PropertyValue value = new PropertyValue("name", "Some Company Inc.");
+company.setPropertyValue(value);
+
+// ok, let's create the director and tie it to the company:
+BeanWrapper jim = new BeanWrapperImpl(new Employee());
+jim.setPropertyValue("name", "Jim Stravinsky");
+company.setPropertyValue("managingDirector", jim.getWrappedInstance());
+
+// retrieving the salary of the managingDirector through the company
+Float salary = (Float) company.getPropertyValue("managingDirector.salary");
+```
+
+### 3.3.2 内置的PropertyEditor实现类
+Spring 使用PropertyEditor的概念来作用于Object和String之间的转换。相对于对象本身，它可以以一种不同的易于操作的方式来描述属性。例如，一个Date能够以一种人类可读的方式呈现（如String:'2007-14-09')，于此同时我们可以转换这个人类可读的的形式转换为原始date类型（或者，更好的是，任何以人类可读格式的date都能从背后的形式转换为一个Date Objects）。这个行为能够通过注册自定义的java.beans.Properties类型的editors来完成。在BeanWrapper上注册定制的editors，或者可选的，在一个指定的IoC 容器中（如前面章节所提到的），赋予它将属性转换成所需类型的只是。关于更多有关PropertyEditor，查看Oracle java.beans包的javadoc。
+
+一些Spring属性编辑应用的例子如下所示：
+* 设定bean属性通过使用PropertyEditor实现来进行。当你使用String作为一个你在XML文件中声明的bean的属性值，Spring(如果相关类是修改呢的setter具有一个类参数)就会使用ClassEditor来将参数解析为Class对象
+* 在SpringMVC 框架中解析HTTP请求参数使用各种你可以在CommandController中子类中手动绑定的PropertyEditor实现。
+
+|Class|解释|
+|-----|----|
+|ByteArrayPropertyEditor|字节数组的编辑。转换字符串到它们相关的字节标识，默认通过BeanWrapperImpl来注册|
+|ClassEditor|解析字符串到对应的类，反之亦然。当没有找到对应的类时，会抛出IllegalArgumentException。默认的，通过BeanWrapperImpl来注册|
+|CustomBooleanEditor|自定义的Boolean属性编辑器。默认的通过BeanWrapperImpl注册，但是可以通过注册自定义的实例来重载|
+|CustomCollctionEditor|集合的属性编辑器，转换所有的Collection到一个给定的集合类型|
+|CustomDateEditor|自定义的java.util.Date的属性编辑器，支持一个定制的DataFormat。默认不注册，必须由用户通过合适的格式进行注册|
+|CustomNumberEditor|自定义的所有Number子类的属性编辑器，如Integer,Long,Float,或者Double。默认的，通过BeanWrapperImpl来注册，但是可以通过自定义编辑器的实例来重载|
+|FileEditor|解析字符串为java.io.File对象。默认地，通过BeanWrapperImpl注册|
+|InputStreamEditor|单向的属性编辑器能够获取一个字符串并且生成（通过一个中间的ResourceEditor和Resource）一个InputStream 因此InputStream 能够直接被设置为字符串。这意味这默认的用法不为你关闭Inputstream。默认的，通过BeanWrapperImpl注册|
+|LocaleEditor|能够解析字符串到Locale对象并且反之亦然（字符串模式是\[country\],\[variant\]，于Locale方法的toString()相同）。默认的，通过BeanWrapperImpl注册|
+|PatternEditor|能够解析字符串到java.util.regex.Pattern对象并且反之亦然|
+|PropertiesEditor|能够解析字符串（以java.util.Properties类javadoc中定义的格式）为Properties对象。默认的，通过BeanWrapperImpl注册|
+|StringTrimmerEditor|修整字符串的属性编辑器。可选的允许转换一个空字符串为null值。默认不注册，必须由用户注册|
+|URLEditor|能够解析URL的字符串表示为一个实际的URL对象。默认的，通过BeanWrapperImpl注册|
+
+Spring 使用 java.beans.PropertyEditorManager 来为可能会需要的属性编辑器设定搜索路径。这个搜索路径同时包括sun.bean.editors，其中包括了PropertyEditor的其他实现，如Font,Color，以及大多数的主要类型。注意标准的JavaBeans结构自动的发现Properties类（不需要你显式地注册）如果它们与它们操作地类在同一个包内，并且具有对应类名加Editor后缀。例如，一个具有如下所示的类和包结构，就足以使得SomethingEditor类来识别，并且能够作为PropertyEditor来处理Something类的属性。
+```yml
+com
+  chank
+    pop
+      Something
+      SomethingEditor // the PropertyEditor for the Something class
+```
+注意你也可以使用标准的BeanInfo的JavaBean机制。下面的例子使用了BeanInfo机制来显式的注册一个或更多的PropetyEditor实例和它所对应的类。
+```yml
+com
+  chank
+    pop
+      Something
+      SomethingBeanInfo // the BeanInfo for the Something class
+```
+下面的java 源码为应用SomethingBeanInfo将CustomNumberEditor和Something类的age属性关联起来了：
+```java
+public class SomethingBeanInfo extends SimpleBeanInfo {
+
+    public PropertyDescriptor[] getPropertyDescriptors() {
+        try {
+            final PropertyEditor numberPE = new CustomNumberEditor(Integer.class, true);
+            PropertyDescriptor ageDescriptor = new PropertyDescriptor("age", Something.class) {
+                public PropertyEditor createPropertyEditor(Object bean) {
+                    return numberPE;
+                };
+            };
+            return new PropertyDescriptor[] { ageDescriptor };
+        }
+        catch (IntrospectionException ex) {
+            throw new Error(ex.toString());
+        }
+    }
+}
+```
+
+#### 注册额外的自定义PropertyEditor 实现
+当设定bean属性为字符串值的时候，一个Spring IoC 容器最终地使用JavaBeans PropetyEditor实现来将这些字符串值转换为对应的复杂类型的属性。Spring预注册了一些定制的PropertyEditor实现（例如，来转换字符串的类型到Class对象）。另外地，Java标准的JavaBeans PropetiyEditor发现机制需要一个合适命名的并与它提供支持的放在类相同包内的PeopertyEditor，这样它就可以自行被发现。
+
+如果由需要注册其他的定制PropertyEditors，一些机制是可用的。最手动的办法，也是最不方便和不推荐的，就是使用ConfigurableBeanFactory接口的registerCustomEditor()方法，假定你具有一个BeanFatory的引用。另一种（明显更加方便的）机制是使用一个特殊的bean工厂后置处理器，叫做CustomEditorConfigurer。尽管你可以通过BeanFactory实来使用bean工厂后置处理器，CustomEditorConfigurer具有一个嵌套的属性设定，因此我们强烈地推荐你通过ApplicationContext来使用，你可以一相同的方式将它部署到其他的bean，并且它可以被自动检测到并应用。
+
+注意所有的bean工厂类和应用上下文自动地使用一系列的内置属性编辑器，通过它们使用一个BeanWrapper来控制属性转换。你可以使用CustomEditorConfigurer，一个bean工厂后置处理器，来将额外的PropertyEditor实例方便地添加到一个ApplicationContext。
+
+如下例中所示，定义了一个用户类ExoticType和另一个需要ExoticType来设定属性的类DependsOnExtoicType。
+
+```java
+package example;
+
+public class ExoticType {
+
+    private String name;
+
+    public ExoticType(String name) {
+        this.name = name;
+    }
+}
+
+public class DependsOnExoticType {
+
+    private ExoticType type;
+
+    public void setType(ExoticType type) {
+        this.type = type;
+    }
+}
+```
+
+当需要设定合适的属性时，我们希望能够通过string来指定类型属性，PropetyEditor会将这个转换为一个实际的ExtoicType实例。如下的bean定义展示了如何设定这种关系：
+```xml
+<bean id="sample" class="example.DependsOnExoticType">
+    <property name="type" value="aNameForExoticType"/>
+</bean>
+```
+PropetyEditor实现类似下面这样:
+```java
+// converts string representation to ExoticType object
+package example;
+
+public class ExoticTypeEditor extends PropertyEditorSupport {
+
+    public void setAsText(String text) {
+        setValue(new ExoticType(text.toUpperCase()));
+    }
+}
+```
+最终的例子展示了如何使用CustomEditorConfigurer来注册新的属性编辑器到ApplicationContext，以便它可以使用：
+```xml
+<bean class="org.springframework.beans.factory.config.CustomEditorConfigurer">
+    <property name="customEditors">
+        <map>
+            <entry key="example.ExoticType" value="example.ExoticTypeEditor"/>
+        </map>
+    </property>
+</bean>
+```
+##### 使用PropetyEditorRegistrar
+另一个注册属性编辑器到Spring容器的机制时创建并使用PropertyEditorRegistrar.这个接口在你需要在不同的情况下使用相同的一套属性编辑器的时候非常有用。你可以写一个相关的注册器，并在每种情况下使用它。PropertyEditorRegistrar实例和一个通过Spring BeanWrapper（和DataBinder）PropertyEditorRegistry接口共同使用。PropertyEditorRegistrar实例在和暴露了一个属性叫做setPropertyEditorRegistrars(..)的CustomEditorConfigurer共同使用时非常方便。添加到CustomEditorConfigurer的PropertyEditorRegistrar实例能够同样的简单的被DataBinder和Spring MVC 控制器共享。另外，它还可以避免自定义控制器的同步需求：一个PropertyEditorRegistrar被认为在每次bean创建的时候来创建新的PropertyEditor几口。
+下面的例子展示了如何创建你自己的PropertyEditorRegistrar实现：
+
+```java
+package com.foo.editors.spring;
+
+public final class CustomPropertyEditorRegistrar implements PropertyEditorRegistrar {
+
+    public void registerCustomEditors(PropertyEditorRegistry registry) {
+
+        // it is expected that new PropertyEditor instances are created
+        registry.registerCustomEditor(ExoticType.class, new ExoticTypeEditor());
+
+        // you could register as many custom property editors as are required here...
+    }
+}
+```
